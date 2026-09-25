@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Text, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Numeric, Text, Boolean, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.core.database import Base
@@ -23,7 +23,7 @@ class DealMeetingRequest(Base):
     seller_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
     # Buyer initial offer & notes
-    buyer_offered_price = Column(Float, nullable=True)
+    buyer_offered_price = Column(Numeric(14, 2), nullable=True)
     buyer_message = Column(Text, nullable=True)
     
     # 1% platform fee acknowledgments
@@ -38,10 +38,10 @@ class DealMeetingRequest(Base):
     admin_notes = Column(Text, nullable=True)
 
     # 1% Commission Financial Tracking (Calculated upon deal closure)
-    agreed_deal_price = Column(Float, nullable=True)
-    seller_commission_1pct = Column(Float, nullable=True)
-    buyer_commission_1pct = Column(Float, nullable=True)
-    total_platform_commission = Column(Float, nullable=True)
+    agreed_deal_price = Column(Numeric(14, 2), nullable=True)
+    seller_commission_1pct = Column(Numeric(14, 2), nullable=True)
+    buyer_commission_1pct = Column(Numeric(14, 2), nullable=True)
+    total_platform_commission = Column(Numeric(14, 2), nullable=True)
     commission_status = Column(String(30), default="UNPAID") # UNPAID, COLLECTED
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

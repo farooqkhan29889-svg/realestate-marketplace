@@ -1,6 +1,7 @@
 import sys
 from fastapi.testclient import TestClient
 from app.main import app
+from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.user import User
 
@@ -10,7 +11,7 @@ def run_tests():
     print("=== STARTING MARKETPLACE WORKFLOW TESTS ===")
 
     # 1. Test Login as Admin, Seller, Buyer
-    admin_login = client.post("/api/v1/auth/login", json={"email": "admin@realestate.com", "password": "admin123"})
+    admin_login = client.post("/api/v1/auth/login", json={"email": settings.ADMIN_EMAIL, "password": settings.ADMIN_PASSWORD})
     assert admin_login.status_code == 200, f"Admin login failed: {admin_login.text}"
     admin_token = admin_login.json()["access_token"]
     print("[OK] Admin login successful")

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Text, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Numeric, Text, Boolean, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.core.database import Base
@@ -16,7 +16,7 @@ class Property(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(200), nullable=False, index=True)
     description = Column(Text, nullable=False)
-    price = Column(Float, nullable=False, index=True)
+    price = Column(Numeric(14, 2), nullable=False, index=True)
     property_type = Column(String(50), nullable=False, default="Apartment")  # Apartment, Villa, House, Plot, Commercial
     listing_type = Column(String(20), nullable=False, default="Sale")  # Sale, Rent
     bedrooms = Column(Integer, default=1)

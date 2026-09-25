@@ -1,3 +1,4 @@
+# Backend (FastAPI)
 fastapi
 uvicorn[standard]
 sqlalchemy
@@ -8,3 +9,7 @@ python-multipart
 bcrypt
 pyjwt
 email-validator
+
+# Frontend (Streamlit, Python-only UI)
+streamlit
+requests

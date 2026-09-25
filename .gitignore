@@ -12,6 +12,9 @@ ENV/
 # Environment Variables
 .env
 
+# Streamlit secrets (keep the .example tracked)
+.streamlit/secrets.toml
+
 # Database
 *.db
 *.sqlite3

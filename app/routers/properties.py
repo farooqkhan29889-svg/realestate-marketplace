@@ -1,3 +1,4 @@
+import os
 import shutil
 import uuid
 from pathlib import Path
@@ -86,34 +87,67 @@ def upload_property_images(
     if prop.seller_id != current_user.id and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to edit this listing.")
 
+    if len(files) > settings.MAX_UPLOAD_FILES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"You can upload at most {settings.MAX_UPLOAD_FILES} images per listing."
+        )
+
+    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    allowed_types = {"image/jpeg", "image/png", "image/webp"}
+    allowed_exts = {".jpg", ".jpeg", ".png", ".webp"}
+
     uploaded_images = []
     has_primary = db.query(PropertyImage).filter(PropertyImage.property_id == property_id, PropertyImage.is_primary == True).first() is not None
 
-    for idx, file in enumerate(files):
-        ext = Path(file.filename or "image.jpg").suffix.lower()
-        if ext not in [".jpg", ".jpeg", ".png", ".webp"]:
-            ext = ".jpg"
-        
-        file_name = f"prop_{property_id}_{uuid.uuid4().hex[:10]}{ext}"
-        destination = settings.UPLOAD_DIR / file_name
+    try:
+        for idx, file in enumerate(files):
+            ext = Path(file.filename or "image.jpg").suffix.lower()
+            if file.content_type not in allowed_types or ext not in allowed_exts:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Only JPEG, PNG, or WebP images are allowed."
+                )
 
-        with open(destination, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            # Measure size without loading the whole file into memory.
+            file.file.seek(0, os.SEEK_END)
+            size = file.file.tell()
+            file.file.seek(0)
+            if size == 0:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded image is empty.")
+            if size > max_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Each image must be {settings.MAX_UPLOAD_SIZE_MB} MB or smaller."
+                )
 
-        image_url = f"/uploads/{file_name}"
-        is_primary = not has_primary and idx == 0
-        if is_primary:
-            has_primary = True
+            file_name = f"prop_{property_id}_{uuid.uuid4().hex[:10]}{ext}"
+            destination = settings.UPLOAD_DIR / file_name
 
-        img_record = PropertyImage(
-            property_id=property_id,
-            image_url=image_url,
-            is_primary=is_primary
-        )
-        db.add(img_record)
-        uploaded_images.append(img_record)
+            with open(destination, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer, length=1024 * 1024)
 
-    db.commit()
+            image_url = f"/uploads/{file_name}"
+            is_primary = not has_primary and idx == 0
+            if is_primary:
+                has_primary = True
+
+            img_record = PropertyImage(
+                property_id=property_id,
+                image_url=image_url,
+                is_primary=is_primary
+            )
+            db.add(img_record)
+            uploaded_images.append(img_record)
+
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        # Remove any files already written for this request.
+        for img in uploaded_images:
+            (settings.UPLOAD_DIR / Path(img.image_url).name).unlink(missing_ok=True)
+        raise
+
     for img in uploaded_images:
         db.refresh(img)
 

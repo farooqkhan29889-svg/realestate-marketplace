@@ -1,0 +1,33 @@
+# Render blueprint: deploys the FastAPI backend + a free Postgres database.
+# Apply via Render dashboard -> "New +" -> "Blueprint" -> select this repo.
+# The Streamlit frontend is deployed separately on Streamlit Community Cloud.
+services:
+  - type: web
+    name: realestate-backend
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/meta
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: ENVIRONMENT
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_EMAIL
+        value: admin@realestate.com
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: realestate-db
+          property: connectionString
+
+databases:
+  - name: realestate-db
+    plan: free
+    databaseName: realestate

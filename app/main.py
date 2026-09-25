@@ -1,9 +1,7 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from pathlib import Path
 
 from app.core.config import settings
 from app.core.init_db import init_db
@@ -22,14 +20,23 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS setup
+# CORS setup. Credentials are only allowed for explicit (non-wildcard) origins.
+_allow_credentials = "*" not in settings.CORS_ORIGINS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=_allow_credentials,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    return response
 
 # Mount Uploads directory
 app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
@@ -41,11 +48,21 @@ app.include_router(deals.router, prefix=settings.API_V1_STR)
 app.include_router(admin.router, prefix=settings.API_V1_STR)
 app.include_router(notifications.router, prefix=settings.API_V1_STR)
 
-# Serve Frontend SPA
-@app.get("/", include_in_schema=False)
-def serve_frontend():
-    index_file = settings.STATIC_DIR / "index.html"
-    return FileResponse(index_file)
+@app.get(f"{settings.API_V1_STR}/meta", include_in_schema=False)
+def public_meta():
+    """Non-sensitive runtime flags the frontend needs (no secrets exposed)."""
+    return {
+        "demo_mode": settings.DEMO_MODE,
+        "commission_percent_seller": settings.COMMISSION_PERCENT_SELLER,
+        "commission_percent_buyer": settings.COMMISSION_PERCENT_BUYER,
+    }
 
-# Mount Static assets
-app.mount("/static", StaticFiles(directory=settings.STATIC_DIR), name="static")
+@app.get("/", include_in_schema=False)
+def root():
+    """API root. The user-facing app is the Streamlit frontend (separate process)."""
+    return {
+        "service": settings.PROJECT_NAME,
+        "version": settings.VERSION,
+        "docs": "/docs",
+        "api": settings.API_V1_STR,
+    }

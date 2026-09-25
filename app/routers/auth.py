@@ -1,18 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from app.core.database import get_db
+from app.core.config import settings
 from app.core.security import get_password_hash, verify_password, create_access_token
 from app.core.deps import get_current_user
+from app.core.rate_limit import rate_limit
 from app.models.user import User, UserRole
 from app.schemas.user import UserRegister, UserLogin, UserOut, Token
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
-def register(user_in: UserRegister, db: Session = Depends(get_db)):
+def register(user_in: UserRegister, request: Request, db: Session = Depends(get_db)):
+    rate_limit(request, "register", settings.RATE_LIMIT_AUTH, settings.RATE_LIMIT_WINDOW_SECONDS)
     # Check if user already exists
-    existing_user = db.query(User).filter(User.email == user_in.email).first()
+    existing_user = db.query(User).filter(User.email == user_in.email.lower().strip()).first()
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -36,7 +39,8 @@ def register(user_in: UserRegister, db: Session = Depends(get_db)):
     return Token(access_token=token, token_type="bearer", user=UserOut.model_validate(new_user))
 
 @router.post("/login", response_model=Token)
-def login(login_data: UserLogin, db: Session = Depends(get_db)):
+def login(login_data: UserLogin, request: Request, db: Session = Depends(get_db)):
+    rate_limit(request, "login", settings.RATE_LIMIT_AUTH, settings.RATE_LIMIT_WINDOW_SECONDS)
     user = db.query(User).filter(User.email == login_data.email.lower().strip()).first()
     if not user or not verify_password(login_data.password, user.hashed_password):
         raise HTTPException(
@@ -50,8 +54,9 @@ def login(login_data: UserLogin, db: Session = Depends(get_db)):
     return Token(access_token=token, token_type="bearer", user=UserOut.model_validate(user))
 
 @router.post("/token", response_model=Token)
-def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), request: Request = None, db: Session = Depends(get_db)):
     # Used by Swagger UI OAuth2 form
+    rate_limit(request, "login", settings.RATE_LIMIT_AUTH, settings.RATE_LIMIT_WINDOW_SECONDS)
     user = db.query(User).filter(User.email == form_data.username.lower().strip()).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(

@@ -41,12 +41,18 @@ class DealMeetingOut(BaseModel):
     commission_status: str
     created_at: datetime
     updated_at: datetime
-    
+
+    # True once the platform has scheduled/approved the meeting, at which point
+    # counterparty contact details are released to the other party.
+    contact_unlocked: bool = False
+
     # Embedded summary details
     property_title: Optional[str] = None
     property_city: Optional[str] = None
     property_price: Optional[float] = None
     buyer_name: Optional[str] = None
+    # buyer/seller phone & email are only populated for authorized viewers
+    # (always for admin; for the counterparty only after contact_unlocked).
     buyer_phone: Optional[str] = None
     buyer_email: Optional[str] = None
     seller_name: Optional[str] = None

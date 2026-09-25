@@ -1,10 +1,12 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.core.deps import get_current_user, require_buyer, require_seller
+from app.core.rate_limit import rate_limit
 from app.models.user import User, UserRole
 from app.models.property import Property, PropertyStatus
 from app.models.deal_meeting import DealMeetingRequest, DealStatus
@@ -13,11 +15,26 @@ from app.schemas.deal_meeting import DealRequestCreate, DealMeetingOut
 
 router = APIRouter(prefix="/deals", tags=["Deals & Meetings"])
 
-def to_deal_out(deal: DealMeetingRequest) -> DealMeetingOut:
+UNLOCKED_STATUSES = {
+    DealStatus.MEETING_SCHEDULED,
+    DealStatus.NEGOTIATION,
+    DealStatus.DEAL_CLOSED,
+}
+
+
+def to_deal_out(deal: DealMeetingRequest, viewer: User | None = None) -> DealMeetingOut:
     prop = deal.property
     buyer = deal.buyer
     seller = deal.seller
-    
+
+    # Contact details stay shielded until the platform schedules the meeting.
+    # Admins (the broker) always see both sides; each party sees the other's
+    # contact only once unlocked. This is what protects the 1% commission.
+    unlocked = deal.status in UNLOCKED_STATUSES
+    is_admin = viewer is not None and viewer.role == UserRole.ADMIN
+    show_buyer_contact = is_admin or (unlocked and viewer is not None and viewer.id == deal.seller_id)
+    show_seller_contact = is_admin or (unlocked and viewer is not None and viewer.id == deal.buyer_id)
+
     return DealMeetingOut(
         id=deal.id,
         property_id=deal.property_id,
@@ -39,20 +56,22 @@ def to_deal_out(deal: DealMeetingRequest) -> DealMeetingOut:
         commission_status=deal.commission_status,
         created_at=deal.created_at,
         updated_at=deal.updated_at,
+        contact_unlocked=unlocked,
         property_title=prop.title if prop else None,
         property_city=prop.city if prop else None,
         property_price=prop.price if prop else None,
         buyer_name=buyer.full_name if buyer else None,
-        buyer_phone=buyer.phone if buyer else None,
-        buyer_email=buyer.email if buyer else None,
+        buyer_phone=buyer.phone if (buyer and show_buyer_contact) else None,
+        buyer_email=buyer.email if (buyer and show_buyer_contact) else None,
         seller_name=seller.full_name if seller else None,
-        seller_phone=seller.phone if seller else None,
-        seller_email=seller.email if seller else None
+        seller_phone=seller.phone if (seller and show_seller_contact) else None,
+        seller_email=seller.email if (seller and show_seller_contact) else None
     )
 
 @router.post("/request-meeting", response_model=DealMeetingOut, status_code=status.HTTP_201_CREATED)
 def request_deal_meeting(
     request_in: DealRequestCreate,
+    request: Request,
     current_user: User = Depends(require_buyer),
     db: Session = Depends(get_db)
 ):
@@ -61,6 +80,8 @@ def request_deal_meeting(
     Acknowledges and accepts the 1% platform facilitation fee upon closing.
     Triggers instant alert notifications to Admin and Seller.
     """
+    rate_limit(request, "meeting-request", settings.RATE_LIMIT_AUTH, settings.RATE_LIMIT_WINDOW_SECONDS)
+
     if not request_in.buyer_agreed_1pct_fee:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -131,7 +152,7 @@ def request_deal_meeting(
 
     db.commit()
     db.refresh(deal)
-    return to_deal_out(deal)
+    return to_deal_out(deal, current_user)
 
 @router.get("/my-requests", response_model=List[DealMeetingOut])
 def get_my_buyer_requests(
@@ -141,7 +162,7 @@ def get_my_buyer_requests(
     deals = db.query(DealMeetingRequest).filter(
         DealMeetingRequest.buyer_id == current_user.id
     ).order_by(DealMeetingRequest.created_at.desc()).all()
-    return [to_deal_out(d) for d in deals]
+    return [to_deal_out(d, current_user) for d in deals]
 
 @router.get("/seller-requests", response_model=List[DealMeetingOut])
 def get_my_seller_requests(
@@ -151,7 +172,7 @@ def get_my_seller_requests(
     deals = db.query(DealMeetingRequest).filter(
         DealMeetingRequest.seller_id == current_user.id
     ).order_by(DealMeetingRequest.created_at.desc()).all()
-    return [to_deal_out(d) for d in deals]
+    return [to_deal_out(d, current_user) for d in deals]
 
 @router.get("/{deal_id}", response_model=DealMeetingOut)
 def get_deal_detail(
@@ -166,4 +187,4 @@ def get_deal_detail(
     if current_user.role != UserRole.ADMIN and current_user.id not in [deal.buyer_id, deal.seller_id]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
 
-    return to_deal_out(deal)
+    return to_deal_out(deal, current_user)

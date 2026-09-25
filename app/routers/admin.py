@@ -28,7 +28,7 @@ def get_all_deals(
     if status_filter:
         query = query.filter(DealMeetingRequest.status == status_filter)
     deals = query.order_by(DealMeetingRequest.created_at.desc()).all()
-    return [to_deal_out(d) for d in deals]
+    return [to_deal_out(d, current_admin) for d in deals]
 
 @router.post("/deals/{deal_id}/schedule", response_model=DealMeetingOut)
 def schedule_meeting(
@@ -79,7 +79,7 @@ def schedule_meeting(
 
     db.commit()
     db.refresh(deal)
-    return to_deal_out(deal)
+    return to_deal_out(deal, current_admin)
 
 @router.post("/deals/{deal_id}/close", response_model=DealMeetingOut)
 def close_deal_and_calculate_commission(
@@ -144,7 +144,7 @@ def close_deal_and_calculate_commission(
 
     db.commit()
     db.refresh(deal)
-    return to_deal_out(deal)
+    return to_deal_out(deal, current_admin)
 
 @router.get("/stats")
 def get_platform_stats(
